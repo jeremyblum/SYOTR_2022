@@ -2,8 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/SYOTR - Fixed.iml" filepath="$PROJECT_DIR$/SYOTR - Fixed.iml" group="SYOTR - Fixed" />
-      <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" group="SYOTR - Fixed/app" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/SYOTR_-_Fixed.iml" filepath="$PROJECT_DIR$/.idea/modules/SYOTR_-_Fixed.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/SYOTR_-_Fixed.app.iml" filepath="$PROJECT_DIR$/.idea/modules/app/SYOTR_-_Fixed.app.iml" />
     </modules>
   </component>
 </project>

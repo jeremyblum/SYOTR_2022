@@ -1,290 +1,246 @@
 package edu.psu.jjb24.syotr;
 
 import android.annotation.SuppressLint;
-import android.content.ContentValues;
-import android.content.Intent;
-import android.database.Cursor;
-import android.database.SQLException;
-import android.database.sqlite.SQLiteDatabase;
+import android.content.Context;
 import android.graphics.Color;
-import android.os.AsyncTask;
-import android.support.v7.app.AppCompatActivity;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.AdapterView;
+import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.ListView;
-import android.widget.SimpleCursorAdapter;
 import android.widget.TextView;
-import android.widget.Toast;
+
+import com.android.volley.Request;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 
 import org.json.JSONException;
-import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.util.List;
 
-public class MainActivity extends AppCompatActivity  {
-    private static final String TAG = "MainActivity";
-    SQLiteDatabase theDB;
-    private SimpleCursorAdapter mAdapter;
-    boolean filtered = false;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import edu.psu.jjb24.syotr.db.Gauge;
+import edu.psu.jjb24.syotr.db.PlayspotStatus;
+import edu.psu.jjb24.syotr.db.WaterDatabase;
+import edu.psu.jjb24.syotr.db.WaterViewModel;
+
+public class MainActivity extends AppCompatActivity {
+    private boolean filtered = false;
+    private WaterViewModel waterViewModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        initListView();
-
-        new AsyncTask<Void,Void,Void>() {
-            @Override
-            protected Void doInBackground(Void... args) {
-                theDB = WhiteWaterDB.getInstance(MainActivity.this).getWritableDatabase();
-                return null;
-            }
-
-            @Override
-            public void onPostExecute(Void result) {
-                reloadCursor();
-            }
-        }.execute();
-    }
-
-    /**
-     * Initialize the list view, including setting up the simple cursor adapter,
-     * and custom view
-     */
-    private void initListView() {
-        ListView listView = findViewById(R.id.lstPlayspots);
-
-        // Set the SimpleCursorAdapter that will bind views in the listview item to
-        // database fields
-        mAdapter = new SimpleCursorAdapter(this, R.layout.list_item, null,
-                new String[]{"playspot", "river", "liked", "ideal", "heightFt", "tempC"},
-                new int[]{R.id.txtPlayspotInList, R.id.txtRiverInList, R.id.imgLikedInList, R.id.listBackground, R.id.txtLevelInList, R.id.txtTempInList}, 0);
-
-        // Customize the way that certain fields are displayed (in particular the text in the row,
-        // the liked field as an icon, and whether the current level is within the ideal range)
-        mAdapter.setViewBinder(new SimpleCursorAdapter.ViewBinder() {
-            public boolean setViewValue(View view, Cursor cursor, int columnIndex) {
-                if (columnIndex == cursor.getColumnIndex("liked")) {
-                    switch (cursor.getString(cursor.getColumnIndex("liked"))) {
-                        case "Y":
-                            ((ImageView) view).setImageResource(R.drawable.ic_thumbs_up);
-                            view.setTag("Y");
-                            break;
-                        case "N":
-                            ((ImageView) view).setImageResource(R.drawable.ic_thumbs_down);
-                            view.setTag("N");
-                            break;
-                        default:
-                            ((ImageView) view).setImageResource(R.drawable.ic_question);
-                            view.setTag("?");
-                    }
-
-                    final long rowid = cursor.getLong(cursor.getColumnIndex("_id"));
-
-                    view.setOnClickListener(new View.OnClickListener() {
-                        long _rowid = rowid;
-
-                        public void onClick(View v) {
-                            toggleImage(_rowid, (ImageView) v);
-                        }
-                    });
-                    return true;
-                } else if (columnIndex == cursor.getColumnIndex("ideal")) {
-
-                    if (cursor.getInt(cursor.getColumnIndex("ideal")) == 1) {
-                        view.setBackgroundColor(0xFF80C080);
-                    } else if (cursor.getDouble(cursor.getColumnIndex("inPlay")) == 1) {
-                        view.setBackgroundColor(0xFFAFFFAF);
-                    } else {
-                        Log.d(TAG, "Not in play");
-                        view.setBackgroundColor(Color.LTGRAY);
-                    }
-                    return true;
-                } else if (columnIndex == cursor.getColumnIndex("heightFt")) {
-                    ((TextView) view).setText("Current level " + cursor.getDouble(cursor.getColumnIndex("heightFt")) +
-                            "    Ideal Level " + cursor.getDouble(cursor.getColumnIndex("idealLevel")) +
-                            "\nRange " + cursor.getDouble(cursor.getColumnIndex("lowLevel")) + " - " +
-                            +cursor.getDouble(cursor.getColumnIndex("highLevel")));
-                    return true;
-                } else if (columnIndex == cursor.getColumnIndex("tempC")) {
-                    ((TextView) view).setText("Temperature " + cursor.getDouble(cursor.getColumnIndex("tempC")) + " C");
-                    return true;
-                }
-
-                return false;
-            }
-        });
-        listView.setAdapter(mAdapter);
-    }
-
-    /**
-     * Toggle the image in response to a click on the Thumb icon, and update the
-     * database
-     *
-     * @param rowid The _id field for the row that is changed
-     * @param imageView The view holding the icon
-     */
-    private void toggleImage(long rowid, ImageView imageView) {
-        String newVal;
-        if (imageView.getTag().equals("Y")) {
-            newVal = "N";
-            imageView.setImageResource(R.drawable.ic_thumbs_down);
+        if (savedInstanceState != null) {
+            filtered = savedInstanceState.getBoolean("filtered");
         }
-        else if (imageView.getTag().equals("N")) {
-            newVal = "?";
-            imageView.setImageResource(R.drawable.ic_question);
-        }
-        else {
-            newVal = "Y";
-            imageView.setImageResource(R.drawable.ic_thumbs_up);
-        }
-        imageView.setTag(newVal);
 
-        ContentValues values = new ContentValues();
-        values.put("liked", newVal);
+        setSupportActionBar(findViewById(R.id.toolbar));
 
-        try {
-            theDB.update("playspots", values, "_id = " + rowid,null);
-        }
-        catch (SQLException e) {
-            Toast.makeText(this, "Error inserting record.", Toast.LENGTH_LONG).show();
-        }
+        RecyclerView recyclerView = findViewById(R.id.lstPlayspots);
+        ListAdapter adapter = new ListAdapter(this);
+        recyclerView.setAdapter(adapter);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
+
+        waterViewModel = new ViewModelProvider(this).get(WaterViewModel.class);
+        waterViewModel.getAll().observe(this, adapter::setData);
     }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.activity_main, menu);
+        if (filtered) {
+            menu.getItem(1).setIcon(R.drawable.ic_filter);
+        } else {
+            menu.getItem(1).setIcon(R.drawable.ic_clear_filter);
+        }
 
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.menu_refresh:
-                getLatestData();
-                return true;
-            case R.id.menu_filter:
-                filtered = !filtered;
-                reloadCursor();
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        Log.d("Http-JSON", "" + item.getItemId());
+        Log.d("Http-JSON", "" + R.id.menu_refresh);
+        if (item.getItemId() == R.id.menu_refresh) {
+            getLatestData();
+            return true;
+        }
+        else if (item.getItemId() == R.id.menu_filter) {
+            filtered = !filtered;
+            if (filtered) {
+                item.setIcon(R.drawable.ic_filter);
+            } else {
+                item.setIcon(R.drawable.ic_clear_filter);
+            }
+            RecyclerView recyclerView = findViewById(R.id.lstPlayspots);
+            ListAdapter adapter = new ListAdapter(this);
+            recyclerView.setAdapter(adapter);
+            waterViewModel.filterSpots(filtered);
+            waterViewModel.getAll().observe(this, adapter::setData);
+            return true;
+        }
+        else {
+            return super.onOptionsItemSelected(item);
         }
     }
 
-    @SuppressLint("StaticFieldLeak")
-    public void reloadCursor() {
-        AsyncTask<Void,Void,Cursor> asyncTask =
-        new AsyncTask<Void,Void,Cursor>() {
-            @Override
-            public Cursor doInBackground(Void... params) {
-                String[] projection = {"_id", "playspot", "river", "lowLevel", "idealLevel", "highLevel", "tempC", "heightFt", "ideal", "inPlay", "liked"};
-                Cursor cursor;
-                if (!filtered) {
-                    cursor = theDB.query("playspotGauge", projection, null, null, null, null, "ideal DESC, inPlay DESC, playspot");
-                } else {
-                    cursor = theDB.query("playspotGauge", projection, "liked = 'Y'", null, null, null, "ideal DESC, inPlay DESC, playspot");
-                }
-                return cursor;
-            }
-
-            @Override
-            public void onPostExecute(Cursor cursor) {
-                mAdapter.swapCursor(cursor);
-            }
-        };
-
-        asyncTask.execute();
-
-    }
-
     public void getLatestData() {
-        new AsyncTask<Void,Void,Void>() {
-            @Override
-            public Void doInBackground(Void... params) {
-                Cursor c;
-                try {
-                    c = theDB.query("gauges", new String[]{"site"}, null, null, null, null, null);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error opening database cursor for gauges: " + e.getMessage());
-                    return null;
-                }
+        Log.d("JSON-HTTP", "retrieving gauges ");
+        WaterDatabase.getGauges(gauges -> {
+            for (Gauge gauge: gauges) {
+                Log.d("JSON-HTTP", "retrieving gauge " + gauge.site);
+                getSiteData(gauge);
+            }
+        });
+    }
 
-                if (c == null) {
-                    Log.e(TAG, "Error opening database cursor for gauges.");
-                    return null;
-                }
+    private void getSiteData(Gauge gauge) {
+        Uri.Builder builder = new Uri.Builder() ;
+        builder.scheme("https")
+                .authority("waterservices.usgs.gov")
+                .appendPath("nwis")
+                .appendPath("iv")
+                .appendQueryParameter("format","json")
+                .appendQueryParameter("sites",gauge.site)
+                .appendQueryParameter("parameterCd","00010,00060,00065");
+        String url = builder.build().toString();
 
-                try {
-                    while (c.moveToNext()) {
-                        URL url;
-
-                        // Note that this call occurs on a background thread,
-                        // but we have implemented the network call in the background
-                        // to illustrate how that would be done, even if called from
-                        // the UI thread
-                        getSiteData(c.getString(0));
+        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(Request.Method.GET,
+                url,null,
+                response -> {
+                    try {
+                        gauge.measureDate = response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("dateTime");
+                        gauge.latitude = Double.valueOf(response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONObject("sourceInfo").getJSONObject("geoLocation").getJSONObject("geogLocation").getString("latitude"));
+                        gauge.longitude = Double.valueOf(response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONObject("sourceInfo").getJSONObject("geoLocation").getJSONObject("geogLocation").getString("longitude"));
+                        gauge.heightFt = Double.valueOf(response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(2).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
+                        gauge.flowCFPS = Double.valueOf(response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(1).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
+                        gauge.tempC = Double.valueOf(response.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
+                        WaterDatabase.update(gauge);
                     }
-                    c.close();
-                } catch (Exception e) {
-                    Log.e(TAG, "Error trying to traverse query results: " + e.getMessage());
-                }
-                reloadCursor();
-                return null;
-            }
-            @Override
-            public void onPostExecute(Void result) {
-            }
-        }.execute();
+                    catch (JSONException je) {
+                        Log.d("JSON-Http-Request", "ERROR: " + je.getMessage());
+                    }
+                },
+                error -> {
+                    Log.d("JSON-Http-Request", "ERROR: " + error.getMessage());
+                });
+
+        Volley.newRequestQueue(this).add(jsonObjectRequest);
     }
 
-    private void getSiteData(String siteCode) {
-        JSONviaHTTP.QueryStringParams params = new JSONviaHTTP.QueryStringParams();
-        params.add("format","json");
-        params.add("sites", siteCode);
-        params.add("parameterCd","00010,00060,00065");
+    /**************************************************************************************
+     * Adapter for the RecyclerView List
+     **************************************************************************************/
+    public static class ListAdapter extends RecyclerView.Adapter<ListAdapter.ViewHolder> {
+        // If the JokeListAdapter were an outer class, the JokeViewHolder could be
+        // a static class.  We want to be able to get access to the MainActivity instance,
+        // so we want it to be an inner class
+        static class ViewHolder extends RecyclerView.ViewHolder {
+            private final View viewGroup;
+            private final TextView txtPlayspot;
+            private final TextView txtLevel;
+            private final TextView txtTemp;
+            private final TextView txtRiver;
+            private final ImageView likedView;
+            private PlayspotStatus playspot;
 
-        new AsyncTask<JSONviaHTTP.QueryStringParams, Void, JSONObject>() {
-            public JSONObject doInBackground(JSONviaHTTP.QueryStringParams... params) {
-                return JSONviaHTTP.get("GET","https://waterservices.usgs.gov/nwis/iv/", params[0],"");
+            private ViewHolder(View itemView) {
+                super(itemView);
+                viewGroup = itemView;
+                txtPlayspot = itemView.findViewById(R.id.txtPlayspot);
+                txtLevel = itemView.findViewById(R.id.txtLevel);
+                txtTemp = itemView.findViewById(R.id.txtTemp);
+                txtRiver = itemView.findViewById(R.id.txtRiver);
+                likedView = itemView.findViewById(R.id.imgLiked);
+
+                likedView.setOnClickListener(view -> {
+                    if (playspot.liked == null) playspot.liked = true;
+                    else if (playspot.liked) playspot.liked = false;
+                    else playspot.liked = null;
+                    WaterDatabase.update(playspot.rowid, playspot.liked);
+                });
             }
-            public void onPostExecute(JSONObject result) {
-                try {
-                    String site = result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONObject("sourceInfo").getJSONArray("siteCode").getJSONObject(0).getString("value");
-                    String measureDate = result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("dateTime");
-                    double latitude = Double.valueOf(result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONObject("sourceInfo").getJSONObject("geoLocation").getJSONObject("geogLocation").getString("latitude"));
-                    double longitude = Double.valueOf(result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONObject("sourceInfo").getJSONObject("geoLocation").getJSONObject("geogLocation").getString("longitude"));
-                    double tempC = Double.valueOf(result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(0).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
-                    double flowCFPS = Double.valueOf(result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(1).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
-                    double heightFt = Double.valueOf(result.getJSONObject("value").getJSONArray("timeSeries").getJSONObject(2).getJSONArray("values").getJSONObject(0).getJSONArray("value").getJSONObject(0).getString("value"));
+        }
 
-                    ContentValues values = new ContentValues();
-                    values.put("measureDate", measureDate);
-                    values.put("latitude", latitude);
-                    values.put("longitude", longitude);
-                    values.put("tempC", tempC);
-                    values.put("flowCFPS", flowCFPS);
-                    values.put("heightFt", heightFt);
+        private final LayoutInflater layoutInflater;
+        private List<PlayspotStatus> playspots;
 
-                    theDB.update("gauges", values, "site = ?", new String[]{site});
-                } catch (JSONException je) {
-                    Log.d(TAG, "Error parsing JSON: " + je.getMessage());
+        ListAdapter(Context context) {
+            layoutInflater = LayoutInflater.from(context);
+        }
+
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View itemView = layoutInflater.inflate(R.layout.list_item, parent, false);
+            return new ViewHolder(itemView);
+        }
+
+        @SuppressLint("DefaultLocale")
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            if (playspots != null) {
+                PlayspotStatus current = playspots.get(position);
+                holder.playspot = current;
+                holder.txtPlayspot.setText(current.playspot);
+                holder.txtLevel.setText(String.format("Current Level: %.2f    Ideal Level: %.1f\nRange: %.1f-%.1f ",
+                        current.heightFt, current.idealLevel, current.lowLevel, current.highLevel));
+                holder.txtTemp.setText(String.format("Temperature %.1f C",current.tempC));
+                holder.txtRiver.setText(current.river);
+
+                if (current.ideal != null && current.ideal) {
+                    holder.viewGroup.setBackgroundColor(0xFF80C080);
                 }
+                else if (current.inPlay != null && current.inPlay) {
+                    holder.viewGroup.setBackgroundColor(0xFFAFFFAF);
+                }
+                else {
+                    holder.viewGroup.setBackgroundColor(Color.LTGRAY);
+                }
+
+                if (current.liked == null) {
+                    holder.likedView.setImageResource(R.drawable.ic_question);
+                }
+                else if (current.liked) {
+                    holder.likedView.setImageResource(R.drawable.ic_thumbs_up);
+                }
+                else {
+                    holder.likedView.setImageResource(R.drawable.ic_thumbs_down);
+                }
+            } else {
+                // Covers the case of data not being ready yet.
+                holder.playspot = null;
+                holder.txtPlayspot.setText("... initializing ...");
+                holder.txtLevel.setText("");
+                holder.txtTemp.setText("");
+                holder.txtRiver.setText("");
+                holder.likedView.setImageResource(R.drawable.ic_question);
             }
-        }.execute(params);
+        }
+
+        void setData(List<PlayspotStatus> playspots){
+            this.playspots = playspots;
+            notifyDataSetChanged();
+        }
+
+        @Override
+        public int getItemCount() {
+            if (playspots != null)
+                return playspots.size();
+            else return 0;
+        }
     }
+
 
 }
